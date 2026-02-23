@@ -142,8 +142,6 @@ export default defineCommand({
     }
 
     let createdCount = 0
-    const errors: string[] = []
-
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
     logger.pushHandler(handler)
@@ -183,18 +181,11 @@ export default defineCommand({
       return title
     }
 
-    function collectErrors(result: Result): void {
-      const errs = result.getErrorMessages()
-      for (const err of errs) {
-        errors.push(err)
-      }
-    }
-
     /**
      * @memo: we use v2 API for checklist
-     * @todo fix this
      */
-    async function addChecklistItems(taskId: number, language: Language): Promise<void> {
+    async function addChecklistItems(taskId: number, language: Language): Promise<Result> {
+      const result = new Result()
       const count = randomInt(CHECKLIST_MIN_ITEMS, CHECKLIST_MAX_ITEMS)
       const labelFn = checklistLabels[language]
 
@@ -208,9 +199,15 @@ export default defineCommand({
         })
 
         if (!response.isSuccess) {
-          errors.push(`Error adding checklist item to task ${taskId}: ${response.getErrorMessages().join('; ')}`)
+          result.addError(new SdkError({
+            code: 'PLAYGROUND_CLI_ERROR',
+            description: `Error adding checklist item to task ${taskId}: ${response.getErrorMessages().join('; ')}`,
+            status: 404
+          }))
         }
       }
+
+      return result
     }
 
     async function createTask(taskNumber: number): Promise<Result> {
@@ -258,7 +255,8 @@ export default defineCommand({
         }
 
         if (Math.random() < CHECKLIST_PROBABILITY) {
-          await addChecklistItems(taskId, language)
+          const checklistResult = await addChecklistItems(taskId, language)
+          result.addErrors(Array.from(checklistResult.getErrors()))
         }
 
         createdCount++
@@ -286,10 +284,11 @@ export default defineCommand({
       logger.notice('\n')
 
       const startTime = Date.now()
+      const errors: string[] = []
 
       for (let i = 0; i < params.total; i++) {
         const taskResult = await createTask(i + 1)
-        collectErrors(taskResult)
+        errors.push(...taskResult.getErrorMessages())
         showProgress(createdCount, params.total)
       }
 

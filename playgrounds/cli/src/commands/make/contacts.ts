@@ -125,7 +125,6 @@ export default defineCommand({
     }
 
     let createdCount = 0
-    const errors: string[] = []
 
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
@@ -236,12 +235,11 @@ export default defineCommand({
         createdCount++
         return result.setData({ contactId })
       } catch (error: unknown) {
-        const errorMessage = `Error creating contact ${contactNumber}: ${error instanceof Error ? error.message : String(error)}`
-        errors.push(errorMessage)
-        return result.addError(SdkError.fromException(errorMessage, {
-          code: 'PLAYGROUND_CLI_ERROR',
-          status: 404
-        }))
+        return result.addError(SdkError.fromException(
+          `Error creating contact ${contactNumber}: ${error instanceof Error ? error.message : String(error)}`, {
+            code: 'PLAYGROUND_CLI_ERROR',
+            status: 404
+          }))
       }
     }
 
@@ -259,9 +257,11 @@ export default defineCommand({
       logger.notice('\n')
 
       const startTime = Date.now()
+      const errors: string[] = []
 
       for (let i = 0; i < params.total; i++) {
-        await createContact(i + 1)
+        const contactResult = await createContact(i + 1)
+        errors.push(...contactResult.getErrorMessages())
         showProgress(createdCount, params.total)
       }
 
