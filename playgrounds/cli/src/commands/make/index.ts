@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty'
-import contacts from './contacts.mjs'
-import companies from './companies.mjs'
+import contacts from './contacts'
+import companies from './companies'
+import tasks from './tasks'
 
 export default defineCommand({
   meta: {
@@ -9,6 +10,7 @@ export default defineCommand({
   },
   subCommands: {
     contacts,
-    companies
+    companies,
+    tasks
   }
 })

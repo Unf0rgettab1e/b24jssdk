@@ -1,18 +1,37 @@
-import { B24Hook, EnumCrmEntityTypeId, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result } from '@bitrix24/b24jssdk'
+import {
+  B24Hook,
+  EnumCrmEntityTypeId,
+  Logger,
+  LogLevel,
+  ConsoleV2Handler,
+  ParamsFactory,
+  SdkError,
+  Result
+} from '@bitrix24/b24jssdk'
+import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
 import dotenv from 'dotenv'
+
+import type {
+  Language,
+  NamesByLanguage,
+  FmField,
+  ContactFields,
+  CrmItemAddResult
+} from '../../types'
+import { LANGUAGES, EMAIL_DOMAINS, SOURCES, POSTS } from '../../constants'
+import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
 
 /**
  * Command for generating random contacts in Bitrix24
  *
  * Usage:
- * clear; node ./index.mjs make contacts --total=10
+ * pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
  */
 
-dotenv.config({ path: '../../.env', quiet: true })
+dotenv.config({ path: '../../.env' })
 
-// Arrays for generating realistic contact names
-const names = {
+const names: Record<Language, NamesByLanguage> = {
   english: {
     firstNames: [
       'James', 'John', 'Robert', 'Michael', 'William', 'David', 'Richard', 'Joseph', 'Thomas', 'Charles',
@@ -82,11 +101,7 @@ const names = {
       '苏', '卢', '蒋', '蔡', '魏', '贾', '丁', '薛', '叶', '阎'
     ]
   }
-}
-
-const languages = ['english', 'russian', 'spanish', 'chinese']
-
-const sources = ['WEBFORM', 'CALL', 'OTHER', 'RC_GENERATOR']
+} as const
 
 export default defineCommand({
   meta: {
@@ -110,23 +125,20 @@ export default defineCommand({
     }
 
     let createdCount = 0
-    let errors = []
+    const errors: string[] = []
 
-    // region Logger ////
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
     logger.pushHandler(handler)
-    // endregion ////
 
-    // Initialize Bitrix24 connection
-    const hookPath = process.env?.B24_HOOK || ''
+    const hookPath = process.env.B24_HOOK ?? ''
     if (!hookPath) {
       logger.emergency('🚨 B24_HOOK environment variable is not set! Please configure it in your .env file')
       process.exit(1)
     }
 
     const b24 = B24Hook.fromWebhookUrl(hookPath, { restrictionParams: ParamsFactory.getBatchProcessing() })
-    logger.info(`Connected to Bitrix24`, { target: b24.getTargetOrigin() })
+    logger.info('Connected to Bitrix24', { target: b24.getTargetOrigin() })
 
     const loggerForDebugB24 = Logger.create('b24')
     const handlerForDebugB24 = new ConsoleV2Handler(LogLevel.ERROR, { useStyles: false })
@@ -134,12 +146,8 @@ export default defineCommand({
 
     b24.setLogger(loggerForDebugB24)
 
-    /**
-     * Generates email from name and last name
-     */
-    function generateEmail(firstName, lastName, language) {
-      const domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'company.com']
-      const domain = domains[Math.floor(Math.random() * domains.length)]
+    function generateEmail(firstName: string, lastName: string, language: Language): string {
+      const domain = pickRandom(EMAIL_DOMAINS)
 
       // For Chinese names, use Pinyin-like format
       if (language === 'chinese') {
@@ -150,76 +158,55 @@ export default defineCommand({
       return `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}`
     }
 
-    /**
-     * Generates phone number based on language/country
-     */
-    function generatePhoneNumber(language) {
-      const countryCodes = {
-        english: '+1', // USA
-        russian: '+7', // Russia
-        spanish: '+34', // Spain
-        chinese: '+86' // China
-      }
-
-      const code = countryCodes[language] || '+1'
-      // Generate 10-digit number (excluding country code)
-      const number = Math.floor(1000000000 + Math.random() * 9000000000)
-      return `${code}${number}`
-    }
-
-    /**
-     * Generates a realistic contact name by combining
-     */
-    function generateContactName(language) {
+    function generateContactName(language: Language): { firstName: string, lastName: string } {
       const languageData = names[language]
-      const firstName = languageData.firstNames[Math.floor(Math.random() * languageData.firstNames.length)]
-      const lastName = languageData.lastNames[Math.floor(Math.random() * languageData.lastNames.length)]
+      const firstName = pickRandom(languageData.firstNames)
+      const lastName = pickRandom(languageData.lastNames)
 
       return { firstName, lastName }
     }
 
-    /**
-     * Generates random contact data
-     */
-    function generateRandomContact() {
-      const language = languages[Math.floor(Math.random() * languages.length)]
-
+    function generateRandomContact(): ContactFields {
+      const language = pickRandom(LANGUAGES)
       const { firstName, lastName } = generateContactName(language)
+
+      const fm: FmField[] = []
+
+      if (Math.random() > 0.5) {
+        fm.push({
+          valueType: 'WORK',
+          value: generatePhoneNumber(language),
+          typeId: 'PHONE'
+        })
+      }
+
+      if (Math.random() > 0.7) {
+        fm.push({
+          valueType: 'WORK',
+          value: generateEmail(firstName, lastName, language),
+          typeId: 'EMAIL'
+        })
+      }
 
       return {
         name: firstName,
-        lastName: lastName,
+        lastName,
         assignedById: params.assignedById,
         open: 'Y',
         typeId: 'CLIENT',
-        sourceId: sources[Math.floor(Math.random() * sources.length)],
-        // Additional optional fields for more realistic data
-        post: ['Manager', 'Developer', 'Director', 'Analyst', 'Specialist'][Math.floor(Math.random() * 5)],
-        fm: [
-          (Math.random() > 0.5 && {
-            valueType: 'WORK',
-            value: generatePhoneNumber(language),
-            typeId: 'PHONE'
-          }) || undefined,
-          (Math.random() > 0.7 && {
-            valueType: 'WORK',
-            value: generateEmail(firstName, lastName, language),
-            typeId: 'EMAIL'
-          }) || undefined
-        ].filter(Boolean)
+        sourceId: pickRandom(SOURCES),
+        post: pickRandom(POSTS),
+        fm
       }
     }
 
-    /**
-     * Creates a single contact in Bitrix24
-     */
-    async function createContact(contactNumber) {
+    async function createContact(contactNumber: number): Promise<Result> {
       const result = new Result()
 
       try {
         const contactData = generateRandomContact()
 
-        const response = await b24.actions.v2.call.make({
+        const response = await b24.actions.v2.call.make<CrmItemAddResult>({
           method: 'crm.item.add',
           params: {
             entityTypeId: EnumCrmEntityTypeId.contact,
@@ -235,8 +222,8 @@ export default defineCommand({
           }))
         }
 
-        const resultData = response.getData()
-        const contactId = resultData?.result.item.id || 0
+        const resultData = response.getData() as GetPayload<CrmItemAddResult> | undefined
+        const contactId = resultData?.result?.item?.id ?? 0
 
         if (!contactId) {
           return result.addError(new SdkError({
@@ -248,8 +235,8 @@ export default defineCommand({
 
         createdCount++
         return result.setData({ contactId })
-      } catch (error) {
-        const errorMessage = `Error creating contact ${contactNumber}: ${error.message}`
+      } catch (error: unknown) {
+        const errorMessage = `Error creating contact ${contactNumber}: ${error instanceof Error ? error.message : String(error)}`
         errors.push(errorMessage)
         return result.addError(SdkError.fromException(errorMessage, {
           code: 'PLAYGROUND_CLI_ERROR',
@@ -258,25 +245,7 @@ export default defineCommand({
       }
     }
 
-    /**
-     * Displays creation progress
-     */
-    function showProgress() {
-      const percentage = Math.round((createdCount / params.total) * 100)
-
-      const progressBarLength = 20
-      const filledLength = Math.floor(percentage / 100 * progressBarLength)
-      const progressBar = '█'.repeat(filledLength) + '░'.repeat(progressBarLength - filledLength)
-
-      process.stdout.clearLine()
-      process.stdout.cursorTo(0)
-      process.stdout.write(`\rProgress: [${progressBar}] ${percentage}% (${createdCount}/${params.total})`)
-    }
-
-    /**
-     * Main function for creating random contacts
-     */
-    async function createRandomContacts() {
+    async function createRandomContacts(): Promise<void> {
       logger.notice('🚀 Starting creation of random contacts in Bitrix24')
       logger.notice(`📊 Planned to create: ${params.total} contacts`)
       logger.notice(`👤 Responsible: user ID ${params.assignedById}`)
@@ -293,7 +262,7 @@ export default defineCommand({
 
       for (let i = 0; i < params.total; i++) {
         await createContact(i + 1)
-        showProgress()
+        showProgress(createdCount, params.total)
       }
 
       const endTime = Date.now()
@@ -304,7 +273,7 @@ export default defineCommand({
       logger.notice('✅ Completed!')
       logger.notice(`📈 Successfully created: ${createdCount} contacts`)
       logger.notice(`⏱️ Total execution time: ${duration} seconds`)
-      logger.notice(`📊 Average time per company: ${(duration / params.total).toFixed(2)} seconds`)
+      logger.notice(`📊 Average time per contact: ${(Number(duration) / params.total).toFixed(2)} seconds`)
 
       if (errors.length > 0) {
         logger.notice(`❌ Errors encountered: ${errors.length}`)

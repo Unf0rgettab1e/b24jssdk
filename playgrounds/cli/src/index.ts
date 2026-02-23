@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { defineCommand, runMain } from 'citty'
-import make from './commands/make/index.mjs'
+import make from './commands/make/index'
 
 const main = defineCommand({
   meta: {
