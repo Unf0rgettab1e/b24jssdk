@@ -1,24 +1,9 @@
-import {
-  B24Hook,
-  EnumCrmEntityTypeId,
-  Logger,
-  LogLevel,
-  ConsoleV2Handler,
-  ParamsFactory,
-  SdkError,
-  Result
-} from '@bitrix24/b24jssdk'
+import { B24Hook, EnumCrmEntityTypeId, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result } from '@bitrix24/b24jssdk'
 import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
 import dotenv from 'dotenv'
 
-import type {
-  Language,
-  NamesByLanguage,
-  FmField,
-  ContactFields,
-  CrmItemAddResult
-} from '../../types'
+import type { Language, NamesByLanguage, FmField, ContactFields, CrmItemAddResult } from '../../types'
 import { LANGUAGES, EMAIL_DOMAINS, SOURCES, POSTS } from '../../constants'
 import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
 
@@ -26,11 +11,12 @@ import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
  * Command for generating random contacts in Bitrix24
  *
  * Usage:
- * pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
+ * clear; pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
  */
 
 dotenv.config({ path: '../../.env' })
 
+// Arrays for generating realistic contact names
 const names: Record<Language, NamesByLanguage> = {
   english: {
     firstNames: [
@@ -126,10 +112,13 @@ export default defineCommand({
 
     let createdCount = 0
 
+    // region Logger ////
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
     logger.pushHandler(handler)
+    // endregion Logger ////
 
+    // Initialize Bitrix24 connection
     const hookPath = process.env.B24_HOOK ?? ''
     if (!hookPath) {
       logger.emergency('🚨 B24_HOOK environment variable is not set! Please configure it in your .env file')
@@ -145,6 +134,9 @@ export default defineCommand({
 
     b24.setLogger(loggerForDebugB24)
 
+    /**
+     * Generates email from name and last name
+     */
     function generateEmail(firstName: string, lastName: string, language: Language): string {
       const domain = pickRandom(EMAIL_DOMAINS)
 
@@ -157,6 +149,9 @@ export default defineCommand({
       return `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}`
     }
 
+    /**
+     * Generates a realistic contact name by combining
+     */
     function generateContactName(language: Language): { firstName: string, lastName: string } {
       const languageData = names[language]
       const firstName = pickRandom(languageData.firstNames)
@@ -165,10 +160,14 @@ export default defineCommand({
       return { firstName, lastName }
     }
 
+    /**
+     * Generates random contact data
+     */
     function generateRandomContact(): ContactFields {
       const language = pickRandom(LANGUAGES)
       const { firstName, lastName } = generateContactName(language)
 
+      // Additional optional fields for more realistic data
       const fm: FmField[] = []
 
       if (Math.random() > 0.5) {
@@ -199,6 +198,9 @@ export default defineCommand({
       }
     }
 
+    /**
+     * Creates a single contact in Bitrix24
+     */
     async function createContact(contactNumber: number): Promise<Result> {
       const result = new Result()
 
@@ -243,6 +245,9 @@ export default defineCommand({
       }
     }
 
+    /**
+     * Main function for creating random contacts
+     */
     async function createRandomContacts(): Promise<void> {
       logger.notice('🚀 Starting creation of random contacts in Bitrix24')
       logger.notice(`📊 Planned to create: ${params.total} contacts`)

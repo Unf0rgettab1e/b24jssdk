@@ -1,13 +1,4 @@
-import {
-  B24Hook,
-  Logger,
-  LogLevel,
-  ConsoleV2Handler,
-  ParamsFactory,
-  SdkError,
-  Result,
-  Text
-} from '@bitrix24/b24jssdk'
+import { B24Hook, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result, Text } from '@bitrix24/b24jssdk'
 import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
 import dotenv from 'dotenv'
@@ -15,6 +6,7 @@ import dotenv from 'dotenv'
 import type { Language, TaskTemplatesByLanguage, TaskFields, TaskAddResult } from '../../types'
 import { LANGUAGES, PRIORITY_VALUES, STATUS_VALUES } from '../../constants'
 import { pickRandom, randomInt, showProgress } from '../../utils'
+
 /**
  * Command for generating random tasks in Bitrix24
  *
@@ -29,6 +21,7 @@ const CHECKLIST_PROBABILITY = 0.4
 const CHECKLIST_MIN_ITEMS = 2
 const CHECKLIST_MAX_ITEMS = 6
 
+// Arrays for generating realistic task titles
 const taskTemplates: Record<Language, TaskTemplatesByLanguage> = {
   english: {
     verbs: [
@@ -44,7 +37,7 @@ const taskTemplates: Record<Language, TaskTemplatesByLanguage> = {
       'payment integration', 'analytics dashboard', 'email templates', 'landing page',
       'mobile layout', 'data export', 'access permissions', 'onboarding flow', 'release notes'
     ],
-    numberPrefixes: ['#', 'Task ']
+    numberPrefixes: ['N', 'Task ']
   },
   russian: {
     verbs: [
@@ -61,7 +54,7 @@ const taskTemplates: Record<Language, TaskTemplatesByLanguage> = {
       'интеграцию с платёжной системой', 'дашборд аналитики', 'шаблоны писем', 'посадочную страницу',
       'мобильную вёрстку', 'экспорт данных', 'права доступа', 'флоу онбординга', 'заметки к релизу'
     ],
-    numberPrefixes: ['№', 'Задача ']
+    numberPrefixes: ['N', 'Задача ']
   },
   spanish: {
     verbs: [
@@ -80,7 +73,7 @@ const taskTemplates: Record<Language, TaskTemplatesByLanguage> = {
       'plantillas de correo', 'página de destino', 'diseño móvil', 'exportación de datos',
       'permisos de acceso', 'flujo de incorporación', 'notas de versión'
     ],
-    numberPrefixes: ['#', 'Tarea ']
+    numberPrefixes: ['N', 'Tarea ']
   },
   chinese: {
     verbs: [
@@ -97,7 +90,7 @@ const taskTemplates: Record<Language, TaskTemplatesByLanguage> = {
       '支付集成', '分析仪表板', '邮件模板', '着陆页',
       '移动端布局', '数据导出功能', '访问权限', '用户引导流程', '版本说明'
     ],
-    numberPrefixes: ['#', '任务']
+    numberPrefixes: ['N', '任务']
   }
 } as const
 
@@ -110,7 +103,7 @@ const taskTags: Record<Language, readonly string[]> = {
 
 const checklistLabels: Record<Language, (i: number) => string> = {
   english: i => `Check ${i}`,
-  russian: i => `Чек ${i}`,
+  russian: i => `Проверка ${i}`,
   spanish: i => `Verificación ${i}`,
   chinese: i => `检查 ${i}`
 }
@@ -142,10 +135,14 @@ export default defineCommand({
     }
 
     let createdCount = 0
+
+    // region Logger ////
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
     logger.pushHandler(handler)
+    // endregion Logger ////
 
+    // Initialize Bitrix24 connection
     const hookPath = process.env.B24_HOOK ?? ''
     if (!hookPath) {
       logger.emergency('🚨 B24_HOOK environment variable is not set! Please configure it in your .env file')
@@ -161,11 +158,17 @@ export default defineCommand({
 
     b24.setLogger(loggerForDebugB24)
 
+    /**
+     * Generates deadline: now + random 1..36 hours in Bitrix24 DateTime format
+     */
     function generateDeadline(): string {
       const offsetMs = randomInt(1, 36) * 60 * 60 * 1000
       return Text.toB24Format(new Date(Date.now() + offsetMs))
     }
 
+    /**
+     * Generates multilingual task title from verb + object templates
+     */
     function generateTaskTitle(language: Language, taskNumber: number): string {
       const tpl = taskTemplates[language]
       const verb = pickRandom(tpl.verbs)
@@ -182,6 +185,8 @@ export default defineCommand({
     }
 
     /**
+     * Adds checklist items to an existing task
+     *
      * @memo: we use v2 API for checklist
      */
     async function addChecklistItems(taskId: number, language: Language): Promise<Result> {
@@ -210,6 +215,9 @@ export default defineCommand({
       return result
     }
 
+    /**
+     * Creates a single task in Bitrix24
+     */
     async function createTask(taskNumber: number): Promise<Result> {
       const result = new Result()
 
@@ -269,6 +277,9 @@ export default defineCommand({
       }
     }
 
+    /**
+     * Main function for creating random tasks
+     */
     async function createRandomTasks(): Promise<void> {
       logger.notice('🚀 Starting creation of random tasks in Bitrix24')
       logger.notice(`📊 Planned to create: ${params.total} tasks`)

@@ -1,22 +1,9 @@
-import {
-  B24Hook,
-  EnumCrmEntityTypeId,
-  Logger,
-  LogLevel,
-  ConsoleV2Handler,
-  ParamsFactory,
-  SdkError,
-  Result
-} from '@bitrix24/b24jssdk'
+import { B24Hook, EnumCrmEntityTypeId, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result } from '@bitrix24/b24jssdk'
 import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
 import dotenv from 'dotenv'
 
-import type {
-  FmField,
-  CompanyFields,
-  CrmItemAddResult
-} from '../../types'
+import type { FmField, CompanyFields, CrmItemAddResult } from '../../types'
 import { LANGUAGES, EMAIL_DOMAINS } from '../../constants'
 import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
 
@@ -24,11 +11,12 @@ import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
  * Command for generating random companies in Bitrix24
  *
  * Usage:
- * pnpm --filter @bitrix24/b24jssdk-cli dev make companies --total=10
+ * clear; pnpm --filter @bitrix24/b24jssdk-cli dev make companies --total=10
  */
 
 dotenv.config({ path: '../../.env' })
 
+// Arrays for generating realistic company names
 const COMPANY_PREFIXES = [
   'Global', 'Innovative', 'Elite', 'Prime', 'Advanced', 'NextGen', 'Smart',
   'True', 'United', 'National', 'First', 'Premium', 'Pro', 'Alpha', 'Omega'
@@ -70,10 +58,13 @@ export default defineCommand({
 
     let createdCount = 0
 
+    // region Logger ////
     const logger = Logger.create('loadTesting')
     const handler = new ConsoleV2Handler(LogLevel.DEBUG, { useStyles: false })
     logger.pushHandler(handler)
+    // endregion Logger ////
 
+    // Initialize Bitrix24 connection
     const hookPath = process.env.B24_HOOK ?? ''
     if (!hookPath) {
       logger.emergency('🚨 B24_HOOK environment variable is not set! Please configure it in your .env file')
@@ -89,16 +80,23 @@ export default defineCommand({
 
     b24.setLogger(loggerForDebugB24)
 
+    /**
+     * Generates email from name and last name
+     */
     function generateEmail(companyName: string): string {
       const domain = pickRandom(EMAIL_DOMAINS)
       return `${companyName.toLowerCase().replace(/\s+/g, '')}@${domain}`
     }
 
+    /**
+     * Generates a realistic company name by combining prefix, industry, and suffix
+     */
     function generateCompanyName(): string {
       const prefix = pickRandom(COMPANY_PREFIXES)
       const industry = pickRandom(COMPANY_INDUSTRIES)
       const suffix = pickRandom(COMPANY_SUFFIXES)
 
+      // Randomly choose name pattern for variety
       const patterns = [
         `${prefix} ${industry} ${suffix}`,
         `${industry} ${suffix}`,
@@ -109,6 +107,9 @@ export default defineCommand({
       return pickRandom(patterns)
     }
 
+    /**
+     * Generates random company data
+     */
     function generateRandomCompany(): CompanyFields {
       const language = pickRandom(LANGUAGES)
       const companyName = generateCompanyName()
@@ -142,6 +143,9 @@ export default defineCommand({
       }
     }
 
+    /**
+     * Creates a single company in Bitrix24
+     */
     async function createCompany(companyNumber: number): Promise<Result> {
       const result = new Result()
 
@@ -186,6 +190,9 @@ export default defineCommand({
       }
     }
 
+    /**
+     * Main function for creating random companies
+     */
     async function createRandomCompanies(): Promise<void> {
       logger.notice('🚀 Starting creation of random companies in Bitrix24')
       logger.notice(`📊 Planned to create: ${params.total} companies`)
