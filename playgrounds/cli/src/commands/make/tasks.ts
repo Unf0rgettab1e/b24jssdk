@@ -204,7 +204,7 @@ export default defineCommand({
         })
 
         if (!response.isSuccess) {
-          result.addError(new SdkError({
+          return result.addError(new SdkError({
             code: 'PLAYGROUND_CLI_ERROR',
             description: `Error adding checklist item to task ${taskId}: ${response.getErrorMessages().join('; ')}`,
             status: 404
@@ -263,15 +263,22 @@ export default defineCommand({
         }
 
         if (Math.random() < CHECKLIST_PROBABILITY) {
-          const checklistResult = await addChecklistItems(taskId, language)
-          result.addErrors(Array.from(checklistResult.getErrors()))
+          const checklistResponse = await addChecklistItems(taskId, language)
+
+          if (!checklistResponse.isSuccess) {
+            return result.addError(new SdkError({
+              code: 'PLAYGROUND_CLI_ERROR',
+              description: checklistResponse.getErrorMessages().join(';'),
+              status: 404
+            }))
+          }
         }
 
         createdCount++
         return result.setData({ taskId })
-      } catch (error: unknown) {
+      } catch (error) {
         return result.addError(SdkError.fromException(
-          `Error creating task ${taskNumber}: ${error instanceof Error ? error.message : String(error)}`,
+          `Error creating task ${taskNumber}: ${error instanceof Error ? error.message : error}`,
           { code: 'PLAYGROUND_CLI_ERROR', status: 404 }
         ))
       }

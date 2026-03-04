@@ -1,16 +1,16 @@
+import type { BoolString } from '@bitrix24/b24jssdk'
+
 export interface FmField {
   valueType: string
   value: string
   typeId: string
 }
 
-export type Open = 'Y' | 'N'
-
 export interface ContactFields {
   name: string
   lastName: string
   assignedById: number
-  open: Open
+  open: BoolString
   typeId: string
   sourceId: string
   post: string
@@ -20,7 +20,7 @@ export interface ContactFields {
 export interface CompanyFields {
   title: string
   assignedById: number
-  open: Open
+  open: BoolString
   typeId: string
   sourceId: string
   fm: FmField[]
