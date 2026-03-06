@@ -1,7 +1,7 @@
 import { B24Hook, EnumCrmEntityTypeId, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result } from '@bitrix24/b24jssdk'
 import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
-import dotenv from 'dotenv'
+import 'dotenv/config'
 
 import type { Language, NamesByLanguage, FmField, ContactFields, CrmItemAddResult } from '../../types'
 import { LANGUAGES, EMAIL_DOMAINS, SOURCES, POSTS } from '../../constants'
@@ -11,10 +11,8 @@ import { pickRandom, generatePhoneNumber, showProgress } from '../../utils'
  * Command for generating random contacts in Bitrix24
  *
  * Usage:
- * clear; pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
+ * pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
  */
-
-dotenv.config({ path: '../../.env' })
 
 // Arrays for generating realistic contact names
 const names: Record<Language, NamesByLanguage> = {

@@ -1,7 +1,7 @@
 import { B24Hook, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, SdkError, Result, Text } from '@bitrix24/b24jssdk'
 import type { GetPayload } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
-import dotenv from 'dotenv'
+import 'dotenv/config'
 
 import type { Language, TaskTemplatesByLanguage, TaskFields, TaskAddResult } from '../../types'
 import { LANGUAGES, PRIORITY_VALUES, STATUS_VALUES } from '../../constants'
@@ -14,8 +14,6 @@ import { pickRandom, randomInt, showProgress } from '../../utils'
  * pnpm --filter @bitrix24/b24jssdk-cli dev make tasks --total=10
  * pnpm --filter @bitrix24/b24jssdk-cli dev make tasks --total=50 --creatorId=1 --responsibleId=2
  */
-
-dotenv.config({ path: '../../.env' })
 
 const CHECKLIST_PROBABILITY = 0.4
 const CHECKLIST_MIN_ITEMS = 2
