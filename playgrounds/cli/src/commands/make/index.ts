@@ -4,6 +4,7 @@ import contacts from './contacts'
 import tasks from './tasks'
 import productsSku from './products-sku'
 import deals from './deals'
+import recalculateDeals from './recalculate-deals'
 
 export default defineCommand({
   meta: {
@@ -15,6 +16,7 @@ export default defineCommand({
     contacts,
     tasks,
     'products-sku': productsSku,
-    deals
+    deals,
+    'recalculate-deals': recalculateDeals
   }
 })

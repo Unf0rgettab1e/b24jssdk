@@ -17,7 +17,7 @@ The tool uses [@bitrix24/b24jssdk](https://bitrix24.github.io/b24jssdk/) for API
 - **Node.js** v22.0.0 or higher
 - **pnpm** package manager
 - **Bitrix24 webhook** with the following permissions:
-  - `tasks` and `task`  — for creating tasks
+  - `tasks` and `task` — for creating tasks
   - `crm` — for creating contacts, companies, invoices
   - `catalog` — for creating products
 
@@ -65,11 +65,11 @@ pnpm run dev make tasks --total=<number> [--creatorId=<id>] [--responsibleId=<id
 
 **Arguments:**
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--total` | Yes | — | Number of tasks to create |
-| `--creatorId` | No | `1` | User ID of the task creator |
-| `--responsibleId` | No | `1` | User ID of the responsible person |
+| Argument          | Required | Default | Description                       |
+| ----------------- | -------- | ------- | --------------------------------- |
+| `--total`         | Yes      | —       | Number of tasks to create         |
+| `--creatorId`     | No       | `1`     | User ID of the task creator       |
+| `--responsibleId` | No       | `1`     | User ID of the responsible person |
 
 **Generated data:**
 
@@ -105,12 +105,12 @@ pnpm run dev make products-sku --total=<number> [--theme=<industrial|fashion>] [
 
 **Arguments:**
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--total` | Yes | — | Number of parent products to create |
-| `--theme` | No | `industrial` | Theme for product names (`industrial` or `fashion`) |
-| `--vatIncluded` | No | `N` | Whether VAT is included in price (`Y` or `N`) |
-| `--currency` | No | `USD` | Currency code for prices (e.g., `USD`, `EUR`, `RUB`) |
+| Argument        | Required | Default      | Description                                          |
+| --------------- | -------- | ------------ | ---------------------------------------------------- |
+| `--total`       | Yes      | —            | Number of parent products to create                  |
+| `--theme`       | No       | `industrial` | Theme for product names (`industrial` or `fashion`)  |
+| `--vatIncluded` | No       | `N`          | Whether VAT is included in price (`Y` or `N`)        |
+| `--currency`    | No       | `USD`        | Currency code for prices (e.g., `USD`, `EUR`, `RUB`) |
 
 **Generated data:**
 
@@ -160,10 +160,10 @@ pnpm run dev make contacts --total=<number> [--assignedById=<id>]
 
 **Arguments:**
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--total` | Yes | — | Number of contacts to create |
-| `--assignedById` | No | `1` | User ID of the assigned person |
+| Argument         | Required | Default | Description                    |
+| ---------------- | -------- | ------- | ------------------------------ |
+| `--total`        | Yes      | —       | Number of contacts to create   |
+| `--assignedById` | No       | `1`     | User ID of the assigned person |
 
 **Generated data:**
 
@@ -196,10 +196,10 @@ pnpm run dev make companies --total=<number> [--assignedById=<id>]
 
 **Arguments:**
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--total` | Yes | — | Number of companies to create |
-| `--assignedById` | No | `1` | User ID of the assigned person |
+| Argument         | Required | Default | Description                    |
+| ---------------- | -------- | ------- | ------------------------------ |
+| `--total`        | Yes      | —       | Number of companies to create  |
+| `--assignedById` | No       | `1`     | User ID of the assigned person |
 
 **Generated data:**
 
@@ -231,12 +231,12 @@ pnpm run dev make deals --total=<number> [--assignedById=<id>] [--categoryId=<id
 
 **Arguments:**
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--total` | Yes | — | Number of deals to create |
-| `--assignedById` | No | `1` | User ID of the responsible person |
-| `--categoryId` | No | `0` | Sales funnel ID (`0` for default funnel) |
-| `--maxProducts` | No | `4` | Maximum number of SKU products per deal (1‑5) |
+| Argument         | Required | Default | Description                                   |
+| ---------------- | -------- | ------- | --------------------------------------------- |
+| `--total`        | Yes      | —       | Number of deals to create                     |
+| `--assignedById` | No       | `1`     | User ID of the responsible person             |
+| `--categoryId`   | No       | `0`     | Sales funnel ID (`0` for default funnel)      |
+| `--maxProducts`  | No       | `4`     | Maximum number of SKU products per deal (1‑5) |
 
 **Generated data:**
 
@@ -271,6 +271,64 @@ pnpm run dev make deals --total=50 --categoryId=3 --maxProducts=5 --assignedById
 pnpm run dev make deals --total=150
 ```
 
+### Recalculate Deals
+
+Recalculates deal amounts into a target currency using exchange rates from:
+
+- **NBRB** (`BY`) — National Bank of the Republic of Belarus
+- **CBR** (`RU`) — Central Bank of Russia
+- **open.er-api.com** (`OPEN`) — universal aggregator (30+ central banks & commercial sources, 161 currencies)
+
+The exchange rate source is auto-detected from the target currency: BYN → NBRB, RUB → CBR, everything else → open.er-api.com. Results are stored in auto-created deal userfields.
+
+Exchange rates are cached to a local file (`.cache/exchange-rates.json`) with a 24-hour TTL, so repeated runs don't hit external APIs.
+
+**Syntax:**
+
+```bash
+pnpm run dev make recalculate-deals --targetCurrency=<code> [--bank=<BY|RU|OPEN>] [--rateDate=<current|closedate|begindate>] [--categoryId=<id>] [--forceRecalculate=<true|false>]
+```
+
+**Arguments:**
+
+| Argument             | Required | Default          | Description                                                             |
+| -------------------- | -------- | ---------------- | ----------------------------------------------------------------------- |
+| `--targetCurrency`   | Yes      | —                | Target currency code (e.g. `USD`, `EUR`, `RUB`, `BYN`)                  |
+| `--bank`             | No       | auto by currency | Exchange rate source: `BY` (NBRB), `RU` (CBR), `OPEN` (open.er-api.com) |
+| `--rateDate`         | No       | `current`        | Date source for rate: `current` (today), `closedate`, `begindate`       |
+| `--categoryId`       | No       | `0`              | Sales funnel ID (`0` = all funnels)                                     |
+| `--forceRecalculate` | No       | `false`          | If `true`, recalculates all deals including closed ones                 |
+
+**How it works:**
+
+1. **Exchange rates**: Fetches rates from the selected source. The source is auto-detected from `--targetCurrency` if `--bank` is not specified: BYN → NBRB, RUB → CBR, everything else → open.er-api.com.
+2. **Caching**: Rates are cached to `.cache/exchange-rates.json` (24h TTL). Repeated runs reuse cached rates without extra API calls.
+3. **Userfields**: For each target currency, two deal userfields are created (if they don't exist):
+   - `UF_CRM_CNV_{CURRENCY}` — converted amount (double)
+   - `UF_CRM_CNV_{CURRENCY}_DT` — conversion date
+4. **Filtering**: By default, only open deals (not WON/LOSE) or deals without a prior conversion are processed. Use `--forceRecalculate=true` to process all deals.
+5. **Conversion**: Each deal's `opportunity` is converted from its `currencyId` to the target currency at the appropriate exchange rate, then written back via batch updates.
+6. **Multiple currencies**: Running the script with different `--targetCurrency` values creates separate userfield pairs for each currency (e.g., 3 runs with USD, EUR, BYN → 6 userfields).
+
+**Examples:**
+
+```bash
+# Recalculate all open deals to USD (auto → open.er-api.com)
+pnpm run dev make recalculate-deals --targetCurrency=USD
+
+# Recalculate to BYN at deal close date (auto → NBRB)
+pnpm run dev make recalculate-deals --targetCurrency=BYN --rateDate=closedate
+
+# Force recalculate ALL deals (including closed) to EUR (auto → open.er-api.com)
+pnpm run dev make recalculate-deals --targetCurrency=EUR --forceRecalculate=true
+
+# Recalculate deals in funnel #3 to RUB (auto → CBR)
+pnpm run dev make recalculate-deals --targetCurrency=RUB --categoryId=3
+
+# Explicit bank override
+pnpm run dev make recalculate-deals --targetCurrency=USD --bank=RU
+```
+
 ## Running from Different Directories
 
 ### From the monorepo root:
@@ -281,6 +339,7 @@ pnpm --filter @bitrix24/b24jssdk-cli dev make products-sku --total=10
 pnpm --filter @bitrix24/b24jssdk-cli dev make contacts --total=10
 pnpm --filter @bitrix24/b24jssdk-cli dev make companies --total=10
 pnpm --filter @bitrix24/b24jssdk-cli dev make deals --total=10
+pnpm --filter @bitrix24/b24jssdk-cli dev make recalculate-deals --targetCurrency=USD
 ```
 
 ### From `playgrounds/cli/`:
@@ -291,6 +350,7 @@ pnpm run dev make products-sku --total=10
 pnpm run dev make contacts --total=10
 pnpm run dev make companies --total=10
 pnpm run dev make deals --total=10
+pnpm run dev make recalculate-deals --targetCurrency=USD
 ```
 
 > **Note:** Regardless of where you run the command, the `.env` file must be in `playgrounds/cli/`.
@@ -307,14 +367,25 @@ playgrounds/cli/
     ├── index.ts          # CLI entry point
     ├── commands/
     │   └── make/
-    │       ├── index.ts      # make command group
-    │       ├── tasks.ts      # tasks subcommand
-    │       ├── contacts.ts   # contacts subcommand
-    │       ├── companies.ts  # companies subcommand
-    │       ├── deals.ts      # deals subcommand
-    │       └── products-sku.ts # products with SKU subcommand
+    │       ├── index.ts              # make command group
+    │       ├── tasks.ts              # tasks subcommand
+    │       ├── contacts.ts           # contacts subcommand
+    │       ├── companies.ts          # companies subcommand
+    │       ├── deals.ts              # deals subcommand
+    │       ├── products-sku.ts       # products with SKU subcommand
+    │       └── recalculate-deals.ts  # deal currency recalculation
     ├── constants/
     │   └── index.ts      # Shared constants (languages, priorities, product themes, etc.)
+    ├── services/
+    │   └── exchange-rates/
+    │       ├── index.ts             # Exchange rate service exports
+    │       ├── types.ts             # Provider interfaces
+    │       ├── base-provider.ts     # Base class with retry & file cache
+    │       ├── file-cache.ts        # File-based rate cache (24h TTL)
+    │       ├── nbrb-provider.ts     # National Bank of Belarus
+    │       ├── cbr-provider.ts      # Central Bank of Russia
+    │       ├── open-er-provider.ts  # open.er-api.com universal aggregator
+    │       └── provider-factory.ts  # Provider factory
     ├── types/
     │   ├── index.ts      # Type exports
     │   ├── language.ts   # Language types
@@ -324,7 +395,8 @@ playgrounds/cli/
         ├── index.ts      # Utility exports
         ├── random.ts     # Random value generators
         ├── phone.ts      # Phone number generators
-        └── progress.ts   # Progress bar utility
+        ├── progress.ts   # Progress bar utility
+        └── locale.ts     # Bank detection by target currency
 ```
 
 ## Troubleshooting
