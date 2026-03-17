@@ -49,3 +49,15 @@ export interface CatalogProduct {
   measure?: number
   vatId?: number
 }
+
+export interface CrmDeal {
+  ID: number
+  TITLE: string
+  OPPORTUNITY: number
+  CURRENCY_ID: string
+  BEGINDATE: string
+  CLOSEDATE: string
+  CLOSED: BoolString
+  STAGE_ID: string
+  [key: string]: any
+}

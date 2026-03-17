@@ -1,13 +1,11 @@
-import { B24Hook, Logger, LogLevel, ConsoleV2Handler, ParamsFactory } from '@bitrix24/b24jssdk'
+import { B24Hook, Logger, LogLevel, ConsoleV2Handler, ParamsFactory, Text } from '@bitrix24/b24jssdk'
 import { defineCommand } from 'citty'
 import 'dotenv/config'
 import { showProgress, detectBankByCurrency } from '../../utils'
 import { createExchangeRateProvider, type BankCountry, type IExchangeRateProvider } from '../../services/exchange-rates'
-
-type RateDateSource = 'current' | 'closedate' | 'begindate'
+import type { CrmDeal } from '../../types'
 
 const VALID_BANKS: BankCountry[] = ['BY', 'RU', 'OPEN']
-const VALID_RATE_DATES: RateDateSource[] = ['current', 'closedate', 'begindate']
 
 // Bitrix24 adds UF_CRM_ prefix; FIELD_NAME in add must be ≤13 chars
 const UF_CRM_PREFIX = 'UF_CRM_'
@@ -22,17 +20,20 @@ const ufAmountFieldName = (currency: string): string => UF_CRM_PREFIX + fieldNam
 const ufDateFieldName = (currency: string): string => UF_CRM_PREFIX + fieldNameForAdd(currency, true)
 
 /**
- * CLI command to recalculate deal amounts into a target currency
- * using exchange rates from NBRB (BY), CBR (RU), or open.er-api.com (OPEN).
+ * CLI command to recalculate deal amounts into a target currency using exchange rates.
  *
- * Bank is auto-detected by target currency:
- *   BYN → BY (NBRB), RUB → RU (CBR), everything else → OPEN (aggregator).
+ * Features:
+ * - Exchange rate sources: NBRB (BY), CBR (RU), open.er-api.com (OPEN)
+ * - Bank auto-detected by target currency: BYN→NBRB, RUB→CBR, else→OPEN
+ * - Creates deal userfields for converted amount and conversion date
+ * - Skips closed deals with existing conversion unless --forceRecalculate
+ * - Uses current (latest) exchange rates only
+ * - File-based rate cache (24h TTL) between runs
+ * - Batch updates for performance
  *
- * Creates userfields per target currency for the converted amount and
- * the last conversion date. On subsequent runs, only open deals are
- * recalculated (unless --forceRecalculate is set).
- *
- * @usage pnpm --filter @bitrix24/b24jssdk-cli dev make recalculate-deals --targetCurrency=USD
+ * @example
+ * pnpm run dev make recalculate-deals --targetCurrency=USD
+ * pnpm run dev make recalculate-deals --targetCurrency=BYN --forceRecalculate
  */
 export default defineCommand({
   meta: {
@@ -41,49 +42,43 @@ export default defineCommand({
   },
   args: {
     bank: {
-      description: `Exchange rate source (${VALID_BANKS.join(', ')}). Auto-detected from targetCurrency if omitted.`,
+      type: 'string',
+      description: `Exchange rate source: BY (NBRB), RU (CBR), OPEN (open.er-api.com). Omit to auto-detect from targetCurrency.`,
       default: ''
     },
     targetCurrency: {
+      type: 'string',
       description: 'Target currency code (USD, EUR, RUB, BYN...)',
       required: true
     },
-    rateDate: {
-      description: 'Date source for exchange rate: current, closedate, begindate',
-      default: 'current'
-    },
     categoryId: {
+      type: 'string',
       description: 'Sales funnel ID (0 = all funnels)',
       default: '0'
     },
     forceRecalculate: {
-      description: 'Recalculate all deals including closed ones (true/false)',
-      default: 'false'
+      type: 'boolean',
+      description: 'Recalculate all deals including closed ones',
+      alias: ['f', 'force']
     }
   },
   async setup({ args }) {
-    const targetCurrency = String(args.targetCurrency).toUpperCase()
-    const bankArg = String(args.bank || '').toUpperCase()
-    const resolvedBank: BankCountry = bankArg
-      ? bankArg as BankCountry
+    const targetCurrency = String(args.targetCurrency || '').toUpperCase().trim()
+    if (!targetCurrency || targetCurrency.length < 3) {
+      console.error('Invalid targetCurrency: must be a valid 3-letter currency code (e.g. USD, EUR, RUB)')
+      process.exit(1)
+    }
+
+    const bankArg = String(args.bank || '').toUpperCase().trim()
+    const resolvedBank: BankCountry = bankArg && VALID_BANKS.includes(bankArg as BankCountry)
+      ? (bankArg as BankCountry)
       : detectBankByCurrency(targetCurrency)
 
     const params = {
       bank: resolvedBank,
       targetCurrency,
-      rateDate: args.rateDate as RateDateSource,
-      categoryId: Number.parseInt(args.categoryId),
-      forceRecalculate: args.forceRecalculate === 'true'
-    }
-
-    if (!VALID_BANKS.includes(params.bank)) {
-      console.error(`Invalid bank: ${params.bank}. Use one of: ${VALID_BANKS.join(', ')}`)
-      process.exit(1)
-    }
-
-    if (!VALID_RATE_DATES.includes(params.rateDate)) {
-      console.error(`Invalid rateDate: ${params.rateDate}. Use one of: ${VALID_RATE_DATES.join(', ')}`)
-      process.exit(1)
+      categoryId: Number.parseInt(String(args.categoryId || '0'), 10) || 0,
+      forceRecalculate: Boolean(args.forceRecalculate)
     }
 
     // region Logger ////
@@ -119,21 +114,22 @@ export default defineCommand({
     const amountField = ufAmountFieldName(params.targetCurrency)
     const dateField = ufDateFieldName(params.targetCurrency)
 
-    // region Ensure userfields exist ////
+    /**
+     * Ensures deal userfields exist for the target currency.
+     * Creates UF_CRM_CNV_{CURRENCY} (double) and UF_CRM_CNV_{CURRENCY}_DT (date) if missing.
+     */
     async function ensureUserFields(): Promise<{ amountFieldId: number, dateFieldId: number }> {
       logger.info('Checking userfields for target currency...')
 
       let existingFields: any[] = []
-      try {
-        const ufListResponse = await b24.actions.v2.call.make({
-          method: 'crm.deal.userfield.list',
-          params: {}
-        })
-        existingFields = (ufListResponse.getData() as any)?.result || []
-      } catch (err) {
-        logger.error(`Failed to get userfields: ${err}`, { existingFields })
-        process.exit(1)
+      const ufListResponse = await b24.actions.v2.call.make({
+        method: 'crm.deal.userfield.list',
+        params: {}
+      })
+      if (!ufListResponse.isSuccess) {
+        throw new Error(`Failed to get userfields: ${ufListResponse.getErrorMessages().join('; ')}`)
       }
+      existingFields = (ufListResponse.getData() as any)?.result || []
 
       let amountFieldId = 0
       let dateFieldId = 0
@@ -150,63 +146,57 @@ export default defineCommand({
       const amountFieldCode = fieldNameForAdd(params.targetCurrency, false)
       const dateFieldCode = fieldNameForAdd(params.targetCurrency, true)
 
-      logger.info('Creating userfields...', { amountField, dateField })
-
-      try {
+      if (!amountFieldId) {
+        logger.info('Creating userfield...', { amountField })
+        const response = await b24.actions.v2.call.make({
+          method: 'crm.deal.userfield.add',
+          params: {
+            fields: {
+              FIELD_NAME: amountFieldCode,
+              USER_TYPE_ID: 'double',
+              LABEL: `Amount in ${params.targetCurrency}`,
+              EDIT_FORM_LABEL: { ru: `Сумма в ${params.targetCurrency}`, en: `Amount in ${params.targetCurrency}` },
+              LIST_COLUMN_LABEL: { ru: `Сумма в ${params.targetCurrency}`, en: `Amount in ${params.targetCurrency}` },
+              SETTINGS: { PRECISION: 2 },
+              SHOW_IN_LIST: 'Y',
+              IS_SEARCHABLE: 'N'
+            }
+          }
+        })
+        amountFieldId = Number((response.getData() as any)?.result) || 0
         if (!amountFieldId) {
-          const resp = await b24.actions.v2.call.make({
-            method: 'crm.deal.userfield.add',
-            params: {
-              fields: {
-                FIELD_NAME: amountFieldCode,
-                USER_TYPE_ID: 'double',
-                LABEL: `Amount in ${params.targetCurrency}`,
-                EDIT_FORM_LABEL: { ru: `Сумма в ${params.targetCurrency}`, en: `Amount in ${params.targetCurrency}` },
-                LIST_COLUMN_LABEL: { ru: `Сумма в ${params.targetCurrency}`, en: `Amount in ${params.targetCurrency}` },
-                SETTINGS: { PRECISION: 2 },
-                SHOW_IN_LIST: 'Y',
-                IS_SEARCHABLE: 'N'
-              }
-            }
-          })
-          amountFieldId = Number((resp.getData() as any)?.result) || 0
-          if (!amountFieldId) {
-            throw new Error(`Failed to create userfield ${amountField}`)
-          }
+          throw new Error(`Failed to create userfield ${amountField}`)
         }
+      }
 
-        if (!dateFieldId) {
-          const resp = await b24.actions.v2.call.make({
-            method: 'crm.deal.userfield.add',
-            params: {
-              fields: {
-                FIELD_NAME: dateFieldCode,
-                USER_TYPE_ID: 'date',
-                LABEL: `${params.targetCurrency} conversion date`,
-                EDIT_FORM_LABEL: { ru: `Дата пересчёта ${params.targetCurrency}`, en: `${params.targetCurrency} conversion date` },
-                LIST_COLUMN_LABEL: { ru: `Дата пересчёта ${params.targetCurrency}`, en: `${params.targetCurrency} conversion date` },
-                SHOW_IN_LIST: 'Y',
-                IS_SEARCHABLE: 'N'
-              }
+      if (!dateFieldId) {
+        logger.info('Creating userfield...', { dateField })
+        const response = await b24.actions.v2.call.make({
+          method: 'crm.deal.userfield.add',
+          params: {
+            fields: {
+              FIELD_NAME: dateFieldCode,
+              USER_TYPE_ID: 'date',
+              LABEL: `${params.targetCurrency} conversion date`,
+              EDIT_FORM_LABEL: { ru: `Дата пересчёта ${params.targetCurrency}`, en: `${params.targetCurrency} conversion date` },
+              LIST_COLUMN_LABEL: { ru: `Дата пересчёта ${params.targetCurrency}`, en: `${params.targetCurrency} conversion date` },
+              SHOW_IN_LIST: 'Y',
+              IS_SEARCHABLE: 'N'
             }
-          })
-          dateFieldId = Number((resp.getData() as any)?.result) || 0
-          if (!dateFieldId) {
-            throw new Error(`Failed to create userfield ${dateField}`)
           }
+        })
+        dateFieldId = Number((response.getData() as any)?.result) || 0
+        if (!dateFieldId) {
+          throw new Error(`Failed to create userfield ${dateField}`)
         }
-      } catch (err) {
-        logger.error(String(err), { amountField, dateField })
-        process.exit(1)
       }
 
       logger.info('Userfields ready')
       return { amountFieldId, dateFieldId }
     }
-    // endregion Ensure userfields exist ////
 
-    // region Fetch all deals ////
-    async function fetchAllDeals(): Promise<any[]> {
+    /** Fetches all deals with pagination via crm.deal.list. */
+    async function fetchAllDeals(): Promise<CrmDeal[]> {
       logger.info('Fetching deals...')
 
       const select = [
@@ -215,7 +205,7 @@ export default defineCommand({
         amountField, dateField
       ]
 
-      const allDeals: any[] = []
+      const allDeals: CrmDeal[] = []
       let start = 0
 
       while (true) {
@@ -229,7 +219,7 @@ export default defineCommand({
           }
         })
 
-        const items: any[] = (response.getData() as any)?.result || []
+        const items: CrmDeal[] = (response.getData() as any)?.result || []
         allDeals.push(...items)
 
         start += items.length
@@ -239,10 +229,12 @@ export default defineCommand({
       logger.info(`Fetched ${allDeals.length} deals total`)
       return allDeals
     }
-    // endregion Fetch all deals ////
 
-    // region Filter deals for recalculation ////
-    function filterDeals(deals: any[]): any[] {
+    /**
+     * Filters deals to process: with --forceRecalculate returns all;
+     * otherwise skips closed deals that already have a conversion.
+     */
+    function filterDeals(deals: CrmDeal[]): CrmDeal[] {
       if (params.forceRecalculate) {
         return deals
       }
@@ -258,14 +250,15 @@ export default defineCommand({
         return true
       })
     }
-    // endregion Filter deals for recalculation ////
 
-    // region Recalculate and update ////
+    /**
+     * Main recalculation loop.
+     * For each deal: converts opportunity to target currency, batches crm.deal.update.
+     */
     async function recalculateDeals() {
       logger.notice('Starting deal amount recalculation')
       logger.notice(`Bank: ${params.bank} (${rateProvider.baseCurrency})`)
       logger.notice(`Target currency: ${params.targetCurrency}`)
-      logger.notice(`Rate date source: ${params.rateDate}`)
       logger.notice(`Force recalculate: ${params.forceRecalculate}`)
       logger.notice('─'.repeat(50))
 
@@ -280,9 +273,20 @@ export default defineCommand({
       let convertedCount = 0
       let skippedCount = 0
 
-      await ensureUserFields()
+      try {
+        await ensureUserFields()
+      } catch (err) {
+        logger.error(`Userfields setup failed: ${err}`, {})
+        throw err
+      }
 
-      const allDeals = await fetchAllDeals()
+      let allDeals: CrmDeal[]
+      try {
+        allDeals = await fetchAllDeals()
+      } catch (err) {
+        logger.error(`Failed to fetch deals: ${err}`, {})
+        throw err
+      }
       const dealsToProcess = filterDeals(allDeals)
 
       if (dealsToProcess.length === 0) {
@@ -293,13 +297,11 @@ export default defineCommand({
       logger.notice(`Deals to process: ${dealsToProcess.length} / ${allDeals.length} total`)
       logger.notice('─'.repeat(50))
 
-      const today = new Date()
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-
       const MAX_BATCH_SIZE = 50
       let batchCommands: Record<string, any> = {}
       let commandsCount = 0
 
+      /** Sends accumulated crm.deal.update commands via batch API. */
       async function flushBatch(): Promise<void> {
         if (commandsCount === 0) return
 
@@ -325,19 +327,10 @@ export default defineCommand({
         const dealCurrency = (deal.CURRENCY_ID || '').toUpperCase()
         const dealAmount = Number(deal.OPPORTUNITY) || 0
 
-        if (!dealCurrency || dealAmount === 0) {
+        if (!dealCurrency || dealAmount === 0 || !Number.isFinite(dealAmount)) {
           skippedCount++
           showProgress(i + 1, dealsToProcess.length)
           continue
-        }
-
-        let rateDate: Date | undefined
-        if (params.rateDate === 'current') {
-          rateDate = undefined
-        } else if (params.rateDate === 'closedate' && deal.CLOSEDATE) {
-          rateDate = new Date(deal.CLOSEDATE)
-        } else if (params.rateDate === 'begindate' && deal.BEGINDATE) {
-          rateDate = new Date(deal.BEGINDATE)
         }
 
         let convertedAmount: number
@@ -348,12 +341,11 @@ export default defineCommand({
             convertedAmount = await rateProvider.convert(
               dealAmount,
               dealCurrency,
-              params.targetCurrency,
-              rateDate
+              params.targetCurrency
             )
           }
         } catch (err) {
-          errors.push(`Deal #${dealId} (${dealCurrency}): ${err}`)
+          errors.push(`Failed to convert deal #${dealId} (${dealCurrency}): ${err}`)
           skippedCount++
           showProgress(i + 1, dealsToProcess.length)
           continue
@@ -361,6 +353,7 @@ export default defineCommand({
 
         convertedAmount = Math.round(convertedAmount * 100) / 100
 
+        const todayStr = Text.toB24Format(new Date())
         const cmdId = `upd_${dealId}`
         batchCommands[cmdId] = {
           method: 'crm.deal.update',
@@ -405,8 +398,12 @@ export default defineCommand({
         logger.notice('No errors encountered during recalculation!')
       }
     }
-    // endregion Recalculate and update ////
 
-    await recalculateDeals()
+    try {
+      await recalculateDeals()
+    } catch (err) {
+      logger.emergency(`Recalculation failed: ${err}`)
+      process.exit(1)
+    }
   }
 })

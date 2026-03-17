@@ -286,7 +286,7 @@ Exchange rates are cached to a local file (`.cache/exchange-rates.json`) with a 
 **Syntax:**
 
 ```bash
-pnpm run dev make recalculate-deals --targetCurrency=<code> [--bank=<BY|RU|OPEN>] [--rateDate=<current|closedate|begindate>] [--categoryId=<id>] [--forceRecalculate=<true|false>]
+pnpm run dev make recalculate-deals --targetCurrency=<code> [--bank=<BY|RU|OPEN>] [--categoryId=<id>] [--forceRecalculate]
 ```
 
 **Arguments:**
@@ -295,19 +295,18 @@ pnpm run dev make recalculate-deals --targetCurrency=<code> [--bank=<BY|RU|OPEN>
 | -------------------- | -------- | ---------------- | ----------------------------------------------------------------------- |
 | `--targetCurrency`   | Yes      | —                | Target currency code (e.g. `USD`, `EUR`, `RUB`, `BYN`)                  |
 | `--bank`             | No       | auto by currency | Exchange rate source: `BY` (NBRB), `RU` (CBR), `OPEN` (open.er-api.com) |
-| `--rateDate`         | No       | `current`        | Date source for rate: `current` (today), `closedate`, `begindate`       |
 | `--categoryId`       | No       | `0`              | Sales funnel ID (`0` = all funnels)                                     |
-| `--forceRecalculate` | No       | `false`          | If `true`, recalculates all deals including closed ones                 |
+| `--forceRecalculate` | No       | `false`          | Recalculate all deals including closed ones                             |
 
 **How it works:**
 
-1. **Exchange rates**: Fetches rates from the selected source. The source is auto-detected from `--targetCurrency` if `--bank` is not specified: BYN → NBRB, RUB → CBR, everything else → open.er-api.com.
+1. **Exchange rates**: Fetches the latest rates from the selected source. The source is auto-detected from `--targetCurrency` if `--bank` is not specified: BYN → NBRB, RUB → CBR, everything else → open.er-api.com.
 2. **Caching**: Rates are cached to `.cache/exchange-rates.json` (24h TTL). Repeated runs reuse cached rates without extra API calls.
 3. **Userfields**: For each target currency, two deal userfields are created (if they don't exist):
    - `UF_CRM_CNV_{CURRENCY}` — converted amount (double)
    - `UF_CRM_CNV_{CURRENCY}_DT` — conversion date
-4. **Filtering**: By default, only open deals (not WON/LOSE) or deals without a prior conversion are processed. Use `--forceRecalculate=true` to process all deals.
-5. **Conversion**: Each deal's `opportunity` is converted from its `currencyId` to the target currency at the appropriate exchange rate, then written back via batch updates.
+4. **Filtering**: By default, only open deals or deals without a prior conversion are processed. Use `--forceRecalculate` to process all deals.
+5. **Conversion**: Each deal's `opportunity` is converted from its `currencyId` to the target currency at the current exchange rate, then written back via batch updates.
 6. **Multiple currencies**: Running the script with different `--targetCurrency` values creates separate userfield pairs for each currency (e.g., 3 runs with USD, EUR, BYN → 6 userfields).
 
 **Examples:**
@@ -316,11 +315,8 @@ pnpm run dev make recalculate-deals --targetCurrency=<code> [--bank=<BY|RU|OPEN>
 # Recalculate all open deals to USD (auto → open.er-api.com)
 pnpm run dev make recalculate-deals --targetCurrency=USD
 
-# Recalculate to BYN at deal close date (auto → NBRB)
-pnpm run dev make recalculate-deals --targetCurrency=BYN --rateDate=closedate
-
-# Force recalculate ALL deals (including closed) to EUR (auto → open.er-api.com)
-pnpm run dev make recalculate-deals --targetCurrency=EUR --forceRecalculate=true
+# Force recalculate ALL deals (including closed) to BYN (auto → NBRB)
+pnpm run dev make recalculate-deals --targetCurrency=BYN --forceRecalculate
 
 # Recalculate deals in funnel #3 to RUB (auto → CBR)
 pnpm run dev make recalculate-deals --targetCurrency=RUB --categoryId=3
